@@ -66,7 +66,7 @@ A biblioteca não depende de ninguém. O aplicativo e os testes dependem dela. E
 ```
 
 - **`OutputType` = `Exe`**: gera um executável de console.
-- **`ProjectReference`**: liga o aplicativo à biblioteca. Sem essa linha, o `Program.cs` não enxergaria as classes `Cpu`, `Bus` etc.
+- **`ProjectReference`**: liga o aplicativo à biblioteca. Sem essa linha, o `Program.cs` não enxergaria as classes `Computador`, `Cpu`, `Bus` etc.
 
 ## 5. `Simulator.test.csproj` (testes)
 

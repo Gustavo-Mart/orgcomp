@@ -5,9 +5,9 @@ arquivo: Simulator.core/Cpu.cs (na prática)
 
 # Rastreio de uma instrução bit a bit
 
-← [[Sim 05 - Cpu (Processador)]] | [[Sim 00 - Visão Geral do Simulador|Visão geral]] | Próxima: [[Sim 07 - Montador (Gerador de Instruções)]]
+← [[Sim 14 - Opcodes e Famílias de Instruções]] | [[Sim 00 - Visão Geral do Simulador|Visão geral]] | Próxima: [[Sim 07 - Montador (Gerador de Instruções)]]
 
-Esta nota segue o começo do teste `InstrucoesTipoR` dentro do simulador, para mostrar o que cada linha de `Cpu.Passo()` faz com números de verdade. É um bom roteiro para explicar o código na apresentação.
+Esta nota segue o começo do teste `InstrucoesTipoR` dentro do simulador, para mostrar o que cada linha de `Cpu.Passo()` faz com números de verdade. Depois, a seção 7 acompanha um laço com desvio para trás, e a seção 8 mostra o barramento num programa com `lw` e `sw`. É um bom roteiro para explicar o código na apresentação.
 
 ## 1. O programa na memória
 
@@ -103,7 +103,61 @@ Comparando os dois códigos em hexadecimal, `00628533` e `406285B3`, o `4` no co
 
 `_bus.Ler(0x30)` devolve `0x00100073`. O opcode é `0x73` (`OpSystem`) e a instrução é igual a `InstEbreak`, então `Parada = true` e o PC fica em `0x30`. O laço do `Rodar` para. O teste então confere os registradores com `cpu[A0]`, `cpu[A1]` etc.
 
-## 7. Estado do barramento no fim
+## 7. Um desvio para trás no laço
+
+O teste `LacoSoma1Ate10` soma 1 + 2 + ... + 10. O programa fica assim na memória:
+
+| Endereço | Código | Assembly |
+|---|---|---|
+| `0x00000` | `00000513` | `addi a0, zero, 0` (soma = 0) |
+| `0x00004` | `00100293` | `addi t0, zero, 1` (i = 1) |
+| `0x00008` | `00B00313` | `addi t1, zero, 11` (limite) |
+| `0x0000C` | `00550533` | `laco: add a0, a0, t0` |
+| `0x00010` | `00128293` | `addi t0, t0, 1` |
+| `0x00014` | `FE62CCE3` | `blt t0, t1, laco` |
+| `0x00018` | `00100073` | `ebreak` |
+
+O rótulo `laco` está em `0x0000C` e o desvio está em `0x00014`. O deslocamento é `0x0C - 0x14 = -8`: o desvio volta 8 bytes, ou seja, duas instruções.
+
+**Decodificando o `blt`** (`0xFE62CCE3`):
+
+| Bits | Valor | Campo |
+|---|---|---|
+| 31 | `1` | `imm[12]` (sinal) |
+| 30-25 | `111111` | `imm[10:5]` |
+| 24-20 | `00110` | `rs2` = 6 (`t1`) |
+| 19-15 | `00101` | `rs1` = 5 (`t0`) |
+| 14-12 | `100` | `funct3` = `blt` |
+| 11-8 | `1100` | `imm[4:1]` |
+| 7 | `1` | `imm[11]` |
+| 6-0 | `1100011` | opcode = `OpBranch` |
+
+O `ImediatoB` remonta `1 1 111111 1100 0`, que dá **-8**. Ver a seção 12 de [[Sim 05 - Cpu (Processador)]].
+
+**Primeira volta (passo 6):** `t0 = 2` e `t1 = 11`. A ULA faz `Slt(2, 11) = 1`, então o desvio é tomado e `proximoPc = 0x14 + (-8) = 0x0C`. A próxima instrução buscada é o `add` de novo.
+
+**Última volta (passo 33):** `t0 = 11`. `Slt(11, 11) = 0`, o desvio não é tomado e `proximoPc = 0x14 + 4 = 0x18`, que é o `ebreak`.
+
+Saída do simulador, com o `UltimaDescricao` de cada passo (os valores de `t0` e `a0` estão anotados em algumas linhas):
+
+```
+ 1 0x00000: 00000513  addi a0, zero, 0
+ 2 0x00004: 00100293  addi t0, zero, 1
+ 3 0x00008: 00B00313  addi t1, zero, 11
+ 4 0x0000C: 00550533  add a0, a0, t0           t0=1  a0=1
+ 5 0x00010: 00128293  addi t0, t0, 1           t0=2  a0=1
+ 6 0x00014: FE62CCE3  blt t0, t1, -8  (tomado)
+ 7 0x0000C: 00550533  add a0, a0, t0           t0=2  a0=3
+ ...
+31 0x0000C: 00550533  add a0, a0, t0           t0=10 a0=55
+32 0x00010: 00128293  addi t0, t0, 1           t0=11 a0=55
+33 0x00014: FE62CCE3  blt t0, t1, -8  (não tomado)
+34 0x00018: 00100073  ebreak/ecall (fim do programa)
+```
+
+São 3 instruções antes do laço, 10 voltas de 3 instruções e o `ebreak`: 3 + 30 + 1 = 34. É o número que o teste confere em `InstrucoesExecutadas`.
+
+## 8. Estado do barramento no fim
 
 No teste `InstrucoesTipoR`:
 
@@ -111,3 +165,14 @@ No teste `InstrucoesTipoR`:
 - **Leituras:** 13, uma busca por instrução executada (12 instruções mais o `ebreak`).
 - **InstrucoesExecutadas:** 13.
 
+No laço da seção 7: 7 escritas (a carga das 7 instruções) e 34 leituras (uma busca por instrução executada).
+
+Com `lw` e `sw` a conta muda, porque essas instruções usam o barramento duas vezes. No teste `SwELw` (10 instruções, com 2 `sw` e 2 `lw`):
+
+| Contador | Valor | De onde vem |
+|---|---|---|
+| `Escritas` | 12 | 10 da carga do programa + 2 `sw` |
+| `Leituras` | 12 | 10 buscas de instrução + 2 `lw` |
+| `InstrucoesExecutadas` | 10 | |
+
+É o gargalo de von Neumann aparecendo nos números: instrução e dado disputam o mesmo barramento.

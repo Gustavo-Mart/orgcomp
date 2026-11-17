@@ -75,7 +75,7 @@ public long Escritas { get; private set; }
 
 `{ get; private set; }` quer dizer: qualquer um pode **ler** o valor, mas só o código dentro de `Bus` pode **alterar**. Assim ninguém de fora coloca um endereço no barramento sem fazer a operação de verdade.
 
-`Memoria` é pública de propósito: os testes e, mais tarde, a tela da VRAM precisam olhar a memória diretamente.
+`Memoria` é pública de propósito: os testes e, mais tarde, a tela da VRAM precisam olhar a memória diretamente. Os testes chegam nela por `cpu.Barramento.Memoria`.
 
 `Leituras` e `Escritas` são `long` (64 bits) porque um programa longo pode passar de 2 bilhões de acessos, o limite do `int`.
 
@@ -102,7 +102,7 @@ Imita um **ciclo de leitura do barramento**, na ordem em que acontece no hardwar
 
 Se o endereço for inválido, `LerPalavra` lança `SimuladorException` e o contador não sobe.
 
-**Quem chama:** `Cpu.Passo()` na busca de cada instrução. Depois da etapa 3, também o `lw`.
+**Quem chama:** `Cpu.Passo()`, na busca de cada instrução e no `lw`.
 
 ## 6. `Escrever(int endereco, int valor)`
 
@@ -119,7 +119,7 @@ public void Escrever(int endereco, int valor)
 
 Imita um **ciclo de escrita**: a CPU coloca o endereço e o dado no barramento, ativa o sinal de escrita e a memória grava.
 
-**Quem chama hoje:** o `Montador.Rodar` (para carregar o programa na memória) e o teste `EscreveELeUmaPalavra`. Depois da etapa 3, o `sw`.
+**Quem chama:** o `sw` da CPU, o `Montador.Rodar` (para carregar o programa na memória) e o teste `EscreveELeUmaPalavra`.
 
 ## 7. `PedirInterrupcao()` e `LimparInterrupcao()`
 
@@ -147,4 +147,5 @@ O `=>` aqui é um método de uma linha só (corpo de expressão).
 ## 9. Observações
 
 - `SinalControle` não volta para `Nenhum` depois de uma operação. Ele guarda o tipo da última operação feita, o que é suficiente para mostrar na tela de depuração.
+- A tela (`Video`) lê a VRAM direto da memória, sem passar por aqui, como um controlador de vídeo com acesso próprio. Por isso as leituras da tela não entram em `Leituras`.
 - Não existe arbitragem (só a CPU usa o barramento). Se um dia entrar DMA, aí sim seria preciso decidir quem usa o barramento em cada momento.

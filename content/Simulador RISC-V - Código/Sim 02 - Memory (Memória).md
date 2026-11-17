@@ -77,7 +77,7 @@ public int LerPalavra(int endereco)
 2. `_bytes.AsSpan(endereco, 4)` cria uma "janela" sobre os 4 bytes `[endereco, endereco+1, endereco+2, endereco+3]`, sem copiar nada.
 3. `ReadInt32LittleEndian` monta o `int` em **little-endian**: o byte do menor endereço é o menos significativo.
 
-**Quem usa:** o `Bus.Ler`, que é chamado pela CPU na busca de instrução.
+**Quem usa:** o `Bus.Ler`, que é chamado pela CPU na busca de cada instrução e no `lw`.
 
 ### Little-endian com um exemplo
 
@@ -110,7 +110,7 @@ public void EscreverPalavra(int endereco, int valor)
 
 `{endereco:X5}` na mensagem formata o número em hexadecimal maiúsculo com pelo menos 5 dígitos, por exemplo `0x90000`.
 
-**Quem usa:** `Bus.Escrever`. Hoje é chamado pelo `Montador.Rodar` para carregar o programa, e depois vai ser chamado pelo `sw`.
+**Quem usa:** `Bus.Escrever`, que é chamado pelo `Montador.Rodar` para carregar o programa e pela CPU no `sw`.
 
 > [!note] Só a escrita no reservado é bloqueada
 > Ler a área reservada é permitido (devolve zero). Escrever na VRAM e na faixa de E/S também é permitido, porque é justamente assim que o programa vai mostrar texto na tela e conversar com periféricos.
@@ -128,7 +128,7 @@ public byte LerByte(int endereco)
 
 **O que faz:** devolve um único byte, de qualquer endereço válido, **sem exigir alinhamento**.
 
-**Por que existe se o RV32I do projeto só tem `lw`/`sw`:** não é para a CPU. É para o próprio simulador e para os testes olharem a memória byte a byte. O uso principal vai ser a tela: para desenhar a VRAM, o simulador lê caractere por caractere. Hoje ele aparece no teste `GuardaEmLittleEndian`.
+**Por que existe se o RV32I do projeto só tem `lw`/`sw`:** não é para a CPU. É para o próprio simulador e para os testes olharem a memória byte a byte. O uso principal é a tela: para desenhar a VRAM, a classe `Video` lê caractere por caractere (ver [[Sim 11 - Video (E-S Programada)]]). Também aparece nos testes `GuardaEmLittleEndian`, `SwELw` e `EscreveNaVram`.
 
 ## 7. `Regiao(int endereco)`
 

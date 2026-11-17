@@ -4,7 +4,7 @@ tags: [projeto-final, simulador, csharp, glossário]
 
 # Conceitos de C# usados no código
 
-← [[Sim 09 - Program (Aplicativo de Console)]] | [[Sim 00 - Visão Geral do Simulador|Visão geral]]
+← [[Sim 13 - Programa de Demonstração]] | [[Sim 00 - Visão Geral do Simulador|Visão geral]]
 
 Glossário dos recursos da linguagem que aparecem no simulador, com um exemplo tirado do próprio código e onde ele aparece. Alguns recursos são recentes; ao lado deles está a versão do C# em que surgiram, até onde sei. Se precisar citar isso em algum trabalho, confira na documentação da Microsoft.
 
@@ -27,7 +27,16 @@ O `using static` deixa escrever `A0` em vez de `Montador.A0`. Em `CpuTests.cs`.
 Com `ImplicitUsings` ligado no `.csproj`, namespaces comuns (`System`, `System.Collections.Generic`...) já vêm importados. O `<Using Include="Xunit" />` do projeto de testes faz o mesmo com o xUnit. Ver [[Sim 01 - Solução e Projetos (csproj)]].
 
 ### Instruções de nível superior
-`Program.cs` tem só `Console.WriteLine(...)`, sem `class` nem `Main`. O compilador gera o resto.
+O `Program.cs` não tem `class` nem `Main`: o código fica solto no arquivo e roda de cima para baixo. O compilador gera o resto. O vetor `args` (o que foi digitado na linha de comando) já existe sem declarar, e um `return 1;` vira o código de saída do programa.
+
+### Função local
+```csharp
+MostrarRelatorio(computador);
+return 0;
+
+static void MostrarRelatorio(Computador c) { ... }
+```
+Uma função declarada dentro do próprio arquivo (ou de outro método). Pode ser chamada antes do ponto onde foi escrita. O `static` impede que ela use, sem querer, variáveis de fora. Em `Program.cs`.
 
 ## 2. Tipos
 
@@ -73,6 +82,10 @@ public string UltimaDescricao { get; private set; } = "";
 ```
 Parecem campos, mas controlam o acesso. `{ get; private set; }` deixa ler de fora e alterar só de dentro. `{ get; }` só deixa definir na criação. O `= ...` no fim dá o valor inicial.
 
+`{ get; init; }` (em `Video.SoQuandoMudar`) também só deixa definir na criação, mas permite fazer isso de fora, com a sintaxe `new Video(mem, 50) { SoQuandoMudar = false }`.
+
+`string?` como tipo de retorno (em `Video.TalvezAtualizar`) avisa que o método pode devolver `null`. Quem recebe confere com `is not null` antes de usar.
+
 ### Indexador
 ```csharp
 public int this[int registrador] => _x[registrador];
@@ -108,6 +121,10 @@ Cada método do `Montador` devolve o próprio objeto, então as chamadas podem s
 | `10_000` | o `_` só separa dígitos | `Rodar(int limite = 10_000)` |
 
 ## 5. Operadores de bits
+
+> [!note] Atribuição composta
+> `v >>= 1` é o mesmo que `v = v >> 1`, e `uns += 1` é o mesmo que `uns = uns + 1`. Aparecem em `Alu.ContarUns`.
+
 
 | Operador | Nome | Uso no simulador |
 |---|---|---|
@@ -146,7 +163,9 @@ Escolhe um **valor** conforme o caso. `_` é o caso padrão. Em `Alu`, `Cpu` e `
 ```csharp
 case OpSystem when inst is InstEcall or InstEbreak:
 ```
-O `when` acrescenta uma condição extra ao caso. Em `Cpu.Passo()`.
+O `when` acrescenta uma condição extra ao caso. Em `Cpu.Passo()`, também em `case OpLoad when funct3 == 0b010` (só o `lw`) e no caso do POPCNT.
+
+A **ordem dos `case` importa**: eles são testados de cima para baixo. Por isso o `case OpI when funct3 == 0b001 && funct7 == Funct7Zbb` (o `cpop`) vem antes do `case OpI:` comum. Se viesse depois, o compilador acusaria erro, porque o caso já estaria coberto pelo de cima.
 
 ### Padrões relacionais e lógicos
 ```csharp
@@ -170,9 +189,43 @@ a < b ? 1 : 0
     ...
 };
 ```
-Uma tupla junta dois valores (`(AluOp.Add, "addi")`). A desconstrução separa de volta em duas variáveis (`op` e `nome`). Em `Cpu.Passo()`, tipo I.
+Uma tupla junta dois valores (`(AluOp.Add, "addi")`). A desconstrução separa de volta em duas variáveis (`op` e `nome`). Em `Cpu.Passo()`, no tipo I e nos desvios (`(bool tomar, string nome)`).
+
+### Tupla com nomes numa lista
+```csharp
+private readonly List<(int indice, string rotulo, int f3, int rs1, int rs2)> _pendentes = new();
+...
+foreach (var (indice, rotulo, f3, rs1, rs2) in _pendentes)
+```
+Cada item da lista é uma tupla de 5 valores com nome. O `foreach (var (...) in ...)` desmonta cada item em 5 variáveis de uma vez. É uma forma rápida de guardar registros pequenos sem criar uma classe. Em `Montador`.
 
 ## 8. Texto
+
+### Raw string (texto bruto)
+```csharp
+public const string Hex = """
+    00100493  # 000  addi s1, zero, 1
+    ...
+    """;
+```
+Texto entre `"""`: pode ter várias linhas, aspas e barras sem precisar escapar nada. Os espaços do começo de cada linha que estiverem antes da coluna do `"""` final são removidos. Surgiu no C# 11. Em `ProgramaDemo.cs` e `ComputadorTests.cs`.
+
+### `StringBuilder`
+Monta um texto aos poucos com `Append`, sem criar uma string nova a cada pedaço. No fim, `ToString()` devolve o texto pronto. Em `Video`.
+
+### Faixas: `[..n]` e `[n..]`
+```csharp
+linha = linha[..comentario];      // do começo até antes de "comentario"
+linha = linha[2..];               // do índice 2 até o fim (tira o "0x")
+arg["--video=".Length..]          // o que vem depois de "--video="
+```
+Pegam um pedaço de uma string (ou vetor) por posição. Surgiram no C# 8. Em `Computador.LerHexTexto` e `Program.cs`.
+
+### Alinhamento na interpolação
+```csharp
+$"  {nome,-10} = 0x{c.Cpu[r]:X8} {c.Cpu[r],11}"
+```
+`{valor,-10}` ocupa 10 posições alinhado à esquerda, e `{valor,11}` ocupa 11 alinhado à direita. Serve para formar colunas. Em `Program.cs`.
 
 ### Interpolação com formato
 ```csharp
@@ -190,6 +243,28 @@ O `$` permite colocar valores entre `{}`. Depois do `:` vem o formato: `X8` é h
 
 ### `List<int>`
 Lista que cresce com `Add`. `ToArray()` copia para um vetor. Em `Montador`.
+
+### `Dictionary<string, int>`
+```csharp
+private readonly Dictionary<string, int> _rotulos = new();
+```
+Guarda pares chave e valor: aqui, o nome do rótulo e o endereço dele. Buscar uma chave é rápido, sem percorrer tudo. Em `Montador`.
+
+### `TryParse` com estilo de número
+```csharp
+uint.TryParse(linha, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out uint valor)
+```
+Converte texto em número sem lançar exceção: devolve `false` se não conseguir. `NumberStyles.HexNumber` diz que o texto está em hexadecimal, e `CultureInfo.InvariantCulture` faz a conversão não depender do idioma do Windows. Em `Computador.LerHexTexto`.
+
+### `TryAdd` e `TryGetValue` com `out`
+```csharp
+if (!_rotulos.TryAdd(nome, _codigo.Count * 4))
+    throw new ArgumentException($"Rótulo repetido: {nome}");
+
+if (!_rotulos.TryGetValue(rotulo, out int destino))
+    throw new ArgumentException($"Rótulo não existe: {rotulo}");
+```
+Os métodos `Try...` devolvem `true` ou `false` em vez de lançar exceção. `TryAdd` não substitui uma chave que já existe. `TryGetValue` devolve o valor encontrado pelo parâmetro `out`: a variável `destino` é declarada ali mesmo e recebe o endereço se o rótulo existir. Em `Montador`.
 
 ### `new()` com tipo deduzido
 ```csharp
@@ -214,13 +289,67 @@ throw new SimuladorException($"Escrita na área reservada: 0x{endereco:X5}");
 ```
 Interrompe o método e sobe o erro até alguém tratar (ou até derrubar o programa).
 
+### Filtro de exceção: `catch ... when`
+```csharp
+catch (Exception e) when (e is SimuladorException or IOException)
+```
+Só captura a exceção se a condição do `when` for verdadeira. Aqui, junta dois tipos de erro num `catch` só. Em `Program.cs`.
+
+### `throw` dentro de uma expressão
+```csharp
+(bool tomar, string nome) = funct3 switch
+{
+    0b000 => (Alu.Zero(Alu.Executar(AluOp.Sub, a, b)), "beq"),
+    ...
+    _ => throw new SimuladorException($"Desvio inválido 0x{inst:X8} em PC=0x{Pc:X5}")
+};
+```
+Num `switch` de expressão, cada caso precisa produzir um valor. O `throw` pode ocupar esse lugar: se cair nesse caso, nenhum valor é produzido e a exceção sobe. Em `Cpu.Passo()`, nos desvios, e em `Alu.Executar`.
+
+### `ArgumentException`
+Exceção padrão do .NET para "o argumento recebido é inválido". O `Montador` usa para rótulo repetido ou inexistente: é um erro de quem escreveu o teste, não do simulador, então não faz sentido usar a `SimuladorException`.
+
 ### Lambda
 ```csharp
 Assert.Throws<SimuladorException>(() => mem.LerPalavra(0x102));
 ```
 `() => ...` é um pedaço de código passado como valor, para ser executado depois por quem recebeu. Nos testes.
 
-## 11. Atributos
+## 11. Funções como valor (delegates)
+
+### `Action<string>?`
+```csharp
+public bool Executar(long limite, Action<string>? aoExecutar = null, Action<string>? aoAtualizarTela = null)
+```
+`Action<string>` é o tipo de "uma função que recebe uma string e não devolve nada". Com isso, quem chama o método pode passar **o que fazer** quando algo acontecer. O `?` diz que pode ser `null` (nenhuma função). Em `Computador.Executar`.
+
+### `?.Invoke`
+```csharp
+aoExecutar?.Invoke(Cpu.UltimaDescricao);
+```
+Chama a função só se ela não for `null`. Se for, a linha não faz nada.
+
+### Passar um método existente
+```csharp
+aoExecutar: passoAPasso ? Console.WriteLine : null,
+aoAtualizarTela: telas.Add,
+```
+Um método já existente pode ser passado onde se espera uma `Action<string>`, sem parênteses: `Console.WriteLine` passa a própria função de imprimir, e `telas.Add` passa a função de guardar na lista. Em `Program.cs` e nos testes.
+
+### Lambda com várias linhas
+```csharp
+aoAtualizarTela: tela =>
+{
+    Console.WriteLine(tela);
+    Console.WriteLine();
+}
+```
+Uma função escrita na hora, com chaves quando tem mais de um comando.
+
+### Argumentos nomeados
+`Executar(limite, aoExecutar: ..., aoAtualizarTela: ...)` e `TalvezAtualizar(n, ignorarIntervalo: true)`: o nome antes dos dois-pontos diz para qual parâmetro vai o valor. Deixa a chamada mais clara e permite pular parâmetros opcionais.
+
+## 12. Atributos
 
 ```csharp
 [Fact]

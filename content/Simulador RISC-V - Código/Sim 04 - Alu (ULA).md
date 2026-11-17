@@ -1,5 +1,5 @@
 ---
-tags: [projeto-final, simulador, ula, alu, operações-de-bits, csharp]
+tags: [projeto-final, simulador, ula, alu, operações-de-bits, popcnt, csharp]
 arquivo: Simulator.core/Alu.cs
 bloco-do-enunciado: CPU (parte da)
 ---
@@ -17,10 +17,10 @@ Essa separação imita o datapath: a ULA é um bloco de hardware isolado, e a un
 ## 2. O enum `AluOp`
 
 ```csharp
-public enum AluOp { Add, Sub, Sll, Slt, Sltu, Xor, Srl, Sra, Or, And }
+public enum AluOp { Add, Sub, Sll, Slt, Sltu, Xor, Srl, Sra, Or, And, Cpop }
 ```
 
-As 10 operações que o RV32I precisa. Cada uma corresponde a uma instrução do tipo R, e quase todas têm uma versão com imediato no tipo I:
+As 10 operações que o RV32I precisa, mais o `Cpop`, que é a instrução especial do grupo 4 (POPCNT). Cada uma das 10 primeiras corresponde a uma instrução do tipo R, e quase todas têm uma versão com imediato no tipo I:
 
 | `AluOp` | Tipo R | Tipo I | O que faz |
 |---|---|---|---|
@@ -34,6 +34,7 @@ As 10 operações que o RV32I precisa. Cada uma corresponde a uma instrução do
 | `Sra` | `sra` | `srai` | desloca para a direita repetindo o bit de sinal (aritmético) |
 | `Or` | `or` | `ori` | OU bit a bit |
 | `And` | `and` | `andi` | E bit a bit |
+| `Cpop` | | `cpop` (POPCNT) | conta quantos bits valem 1 em `a`. Usa só um operando |
 
 O RISC-V não tem `subi` porque basta usar `addi` com imediato negativo.
 
@@ -65,6 +66,7 @@ public static int Executar(AluOp op, int a, int b)
         AluOp.Sra => a >> shamt,                  // aritmético: repete o sinal
         AluOp.Or => a | b,
         AluOp.And => a & b,
+        AluOp.Cpop => ContarUns(a),               // POPCNT (grupo 4): b não é usado
         _ => throw new ArgumentOutOfRangeException(nameof(op))
     };
 }
@@ -111,7 +113,11 @@ O operador `>>>` só existe em C# a partir da versão 11. Em versões antigas se
 
 `a + b` em `int` dá a volta quando passa do limite: `int.MaxValue + 1` vira `int.MinValue`. Em C# isso não gera erro por padrão (o projeto não liga a checagem de overflow). É exatamente o comportamento do RISC-V: `add` não detecta estouro, só descarta o bit que sobra.
 
-### 4.6 O caso `_`
+### 4.6 `Cpop`: uma operação de um operando só
+
+`Cpop` ignora o `b`. A CPU chama `Alu.Executar(AluOp.Cpop, a, 0)`, passando 0 só para preencher o parâmetro. Num hardware de verdade seria a mesma coisa: a ULA tem as duas entradas, e para essa operação a de baixo simplesmente não importa. A contagem é feita pela função `ContarUns` (seção 6).
+
+### 4.7 O caso `_`
 
 Se chegar um valor de `AluOp` fora da lista, o `switch` lança `ArgumentOutOfRangeException`. Na prática isso não acontece, porque a CPU só passa valores válidos, mas o compilador exige que o `switch` cubra todos os casos possíveis de um `enum`.
 
@@ -123,9 +129,49 @@ public static bool Zero(int resultado) => resultado == 0;
 
 Representa a **saída Zero** da ULA do datapath: um sinal de 1 bit que fica ligado quando o resultado é zero.
 
-**Ainda não é usado.** Vai entrar com os desvios: `beq` faz `a - b` na ULA e desvia se `Zero` for verdadeiro (os dois são iguais). `bne` desvia se for falso. É a porta `PCSrc = Branch AND Zero` da aula. Ver [[09 - Processador e Datapath RISC-V (Microprocessador I)#10.5 PCSrc = Branch AND Zero (slide 17)|nota 09, seção 10.5]].
+**É usada pelos desvios** `beq` e `bne`: a CPU faz `a - b` na ULA e olha o `Zero`. Se for verdadeiro, os dois registradores são iguais e o `beq` desvia. O `bne` desvia quando é falso. É a porta `PCSrc = Branch AND Zero` da aula. Ver [[09 - Processador e Datapath RISC-V (Microprocessador I)#10.5 PCSrc = Branch AND Zero (slide 17)|nota 09, seção 10.5]].
 
-## 6. Ligação com a matéria
+## 6. `ContarUns(int valor)`: o POPCNT
+
+```csharp
+/// <summary>Conta quantos bits valem 1 no valor (POPCNT, chamada de cpop no RISC-V).</summary>
+public static int ContarUns(int valor)
+{
+    uint v = (uint)valor; // sem sinal: o deslocamento traz zeros pela esquerda
+    int uns = 0;
+    while (v != 0)
+    {
+        uns += (int)(v & 1); // soma o bit menos significativo
+        v >>= 1;             // e descarta esse bit
+    }
+    return uns;
+}
+```
+
+A ideia é olhar os bits um por um, da direita para a esquerda:
+
+1. `v & 1` isola o bit menos significativo: dá 1 se ele estiver ligado e 0 se não estiver. Esse valor é somado ao contador.
+2. `v >>= 1` desloca tudo uma casa para a direita. O bit que acabou de ser contado sai, e o próximo vira o menos significativo.
+3. Repete até `v` virar zero, ou seja, até não sobrar nenhum bit 1.
+
+**Por que converter para `uint`.** Com `int`, o `>>` repete o bit de sinal. Num número negativo, entraria um 1 pela esquerda a cada volta, e `v` nunca chegaria a zero: o laço não terminaria. Com `uint`, o `>>` sempre traz zeros (é o deslocamento lógico, igual ao `srl`).
+
+**Exemplo com `0b1011` (11):**
+
+| Volta | `v` (binário) | `v & 1` | `uns` |
+|---|---|---|---|
+| 1 | `1011` | 1 | 1 |
+| 2 | `101` | 1 | 2 |
+| 3 | `10` | 0 | 2 |
+| 4 | `1` | 1 | 3 |
+| fim | `0` | | **3** |
+
+O laço dá no máximo 32 voltas, uma por bit. O .NET também tem uma função pronta para isso (`BitOperations.PopCount`), mas aqui o laço foi escrito à mão para a contagem ficar visível no código, o que ajuda na apresentação.
+
+**Para que serve contar bits.** Alguns usos comuns: calcular o bit de paridade (se a quantidade de uns é par ou ímpar), contar quantas opções estão ligadas num conjunto de *flags* guardado como bits, e calcular a distância de Hamming entre dois valores (`popcount(a XOR b)` diz em quantos bits eles diferem).
+
+## 7. Ligação com a matéria
 
 - **Controle da ULA:** na aula, um bloco de controle recebe `ALUOp` (2 bits) mais `funct3`/`funct7` e gera a operação da ULA. Aqui o `enum AluOp` é essa operação final, e quem traduz os campos da instrução para ela é o `switch` dentro de `Cpu.Passo()`. Ver [[09 - Processador e Datapath RISC-V (Microprocessador I)#10.2 Controle da ULA (slide 13)|nota 09, seção 10.2]].
-- **Uma ULA para tudo:** no datapath de ciclo único, a mesma ULA soma para `add`, calcula endereço para `lw`/`sw` e compara para `beq`. No simulador vai ser igual: a etapa 3 usa `Alu.Executar(AluOp.Add, ...)` para o endereço e `AluOp.Sub` para o `beq`.
+- **Uma ULA para tudo:** no datapath de ciclo único, a mesma ULA soma para `add`, calcula endereço para `lw`/`sw` e compara para `beq`. No simulador é igual: o `lw` e o `sw` usam `Alu.Executar(AluOp.Add, ...)` para o endereço, `beq`/`bne` usam `AluOp.Sub` com a saída `Zero`, e `blt`/`bge`/`bltu`/`bgeu` usam `Slt`/`Sltu`.
+- **Instrução especial:** acrescentar o POPCNT foi acrescentar uma operação na ULA e um caso na decodificação. É assim também no hardware: uma instrução nova pede um circuito novo dentro da ULA e um código novo no controle.
